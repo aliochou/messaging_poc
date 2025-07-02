@@ -1,36 +1,24 @@
-import NextAuth from "next-auth"
+import NextAuth, { type NextAuthOptions, type SessionStrategy } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
-import EmailProvider from "next-auth/providers/email"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
 
-const handler = NextAuth({
+export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
-    EmailProvider({
-      server: {
-        host: process.env.EMAIL_SERVER_HOST,
-        port: process.env.EMAIL_SERVER_PORT,
-        auth: {
-          user: process.env.EMAIL_SERVER_USER,
-          pass: process.env.EMAIL_SERVER_PASSWORD,
-        },
-      },
-      from: process.env.EMAIL_FROM,
-    }),
+    })
   ],
   callbacks: {
-    async session({ session, user }) {
+    async session({ session, token, user }) {
       if (session.user) {
-        session.user.id = user.id
+        session.user.id = user?.id || token?.sub || session.user.id;
       }
-      return session
+      return session;
     },
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account, profile }: { user: any; account: any; profile?: any }) {
       // Check if user exists and has encryption keys
       const existingUser = await prisma.user.findUnique({
         where: { email: user.email! },
@@ -50,13 +38,11 @@ const handler = NextAuth({
       return true
     },
   },
-  pages: {
-    signIn: "/auth/signin",
-    error: "/auth/error",
-  },
   session: {
-    strategy: "jwt",
+    strategy: "jwt" as SessionStrategy,
   },
-})
+}
+
+const handler = NextAuth(authOptions)
 
 export { handler as GET, handler as POST } 
