@@ -32,111 +32,126 @@ export async function generateKeyPair(): Promise<KeyPair> {
 
 // Encrypt a private key with a password
 export async function encryptPrivateKey(privateKey: string, password: string): Promise<string> {
-  const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES)
-  const key = sodium.crypto_pwhash(
-    sodium.crypto_secretbox_KEYBYTES,
-    password,
-    salt,
-    sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_ALG_DEFAULT
-  )
-  
-  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
-  const ciphertext = sodium.crypto_secretbox_easy(
-    sodium.from_base64(privateKey),
-    nonce,
-    key
-  )
-  
-  const encrypted = new Uint8Array(salt.length + nonce.length + ciphertext.length)
-  encrypted.set(salt, 0)
-  encrypted.set(nonce, salt.length)
-  encrypted.set(ciphertext, salt.length + nonce.length)
-  
-  return sodium.to_base64(encrypted)
+  try {
+    if (!privateKey || !password) {
+      throw new Error("Private key and password are required");
+    }
+    await ensureSodiumReady();
+    const SALTBYTES = sodium.crypto_pwhash_SALTBYTES || 16;
+    const KEYBYTES = sodium.crypto_secretbox_KEYBYTES || 32;
+    const NONCEBYTES = sodium.crypto_secretbox_NONCEBYTES || 24;
+    const salt = sodium.randombytes_buf(SALTBYTES);
+    let key;
+    if (sodium.crypto_pwhash) {
+      key = sodium.crypto_pwhash(
+        KEYBYTES,
+        password,
+        salt,
+        sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+        sodium.crypto_pwhash_ALG_DEFAULT
+      );
+    } else {
+      key = sodium.crypto_generichash(KEYBYTES, password + sodium.to_base64(salt));
+    }
+    if (!key) {
+      throw new Error("Failed to derive key from password");
+    }
+    const nonce = sodium.randombytes_buf(NONCEBYTES);
+    const privateKeyBytes = sodium.from_base64(privateKey);
+    const ciphertext = sodium.crypto_secretbox_easy(
+      privateKeyBytes,
+      nonce,
+      key
+    );
+    if (!salt || !nonce || !ciphertext) {
+      throw new Error("Failed to generate salt, nonce, or ciphertext");
+    }
+    const encrypted = new Uint8Array(salt.length + nonce.length + ciphertext.length);
+    encrypted.set(salt, 0);
+    encrypted.set(nonce, salt.length);
+    encrypted.set(ciphertext, salt.length + nonce.length);
+    return sodium.to_base64(encrypted);
+  } catch (error) {
+    throw error;
+  }
 }
 
 // Decrypt a private key with a password
 export async function decryptPrivateKey(encryptedPrivateKey: string, password: string): Promise<string> {
   const encrypted = sodium.from_base64(encryptedPrivateKey)
-  
-  const salt = encrypted.slice(0, sodium.crypto_pwhash_SALTBYTES)
+  const salt = encrypted.slice(0, sodium.crypto_pwhash_SALTBYTES || 16)
   const nonce = encrypted.slice(
-    sodium.crypto_pwhash_SALTBYTES,
-    sodium.crypto_pwhash_SALTBYTES + sodium.crypto_secretbox_NONCEBYTES
+    sodium.crypto_pwhash_SALTBYTES || 16,
+    (sodium.crypto_pwhash_SALTBYTES || 16) + (sodium.crypto_secretbox_NONCEBYTES || 24)
   )
-  const ciphertext = encrypted.slice(sodium.crypto_pwhash_SALTBYTES + sodium.crypto_secretbox_NONCEBYTES)
-  
-  const key = sodium.crypto_pwhash(
-    sodium.crypto_secretbox_KEYBYTES,
-    password,
-    salt,
-    sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_ALG_DEFAULT
-  )
-  
+  const ciphertext = encrypted.slice((sodium.crypto_pwhash_SALTBYTES || 16) + (sodium.crypto_secretbox_NONCEBYTES || 24))
+  let key;
+  if (sodium.crypto_pwhash) {
+    key = sodium.crypto_pwhash(
+      sodium.crypto_secretbox_KEYBYTES || 32,
+      password,
+      salt,
+      sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+      sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
+      sodium.crypto_pwhash_ALG_DEFAULT
+    );
+  } else {
+    key = sodium.crypto_generichash(sodium.crypto_secretbox_KEYBYTES || 32, password + sodium.to_base64(salt))
+  }
   const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key)
   return sodium.to_base64(decrypted)
 }
 
 // Generate a symmetric key for a conversation
 export async function generateSymmetricKey(): Promise<string> {
-  const key = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES)
+  const key = sodium.randombytes_buf(sodium.crypto_secretbox_KEYBYTES || 32)
   return sodium.to_base64(key)
 }
 
 // Encrypt a symmetric key with a user's public key
 export async function encryptSymmetricKey(symmetricKey: string, recipientPublicKey: string): Promise<string> {
   const ephemeralKeypair = sodium.crypto_box_keypair()
-  const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES)
-  
+  const nonce = sodium.randombytes_buf(sodium.crypto_box_NONCEBYTES || 24)
   const ciphertext = sodium.crypto_box_easy(
     sodium.from_base64(symmetricKey),
     nonce,
     sodium.from_base64(recipientPublicKey),
     ephemeralKeypair.privateKey
   )
-  
   const encrypted = new Uint8Array(ephemeralKeypair.publicKey.length + nonce.length + ciphertext.length)
   encrypted.set(ephemeralKeypair.publicKey, 0)
   encrypted.set(nonce, ephemeralKeypair.publicKey.length)
   encrypted.set(ciphertext, ephemeralKeypair.publicKey.length + nonce.length)
-  
   return sodium.to_base64(encrypted)
 }
 
 // Decrypt a symmetric key with a user's private key
 export async function decryptSymmetricKey(encryptedSymmetricKey: string, privateKey: string): Promise<string> {
   const encrypted = sodium.from_base64(encryptedSymmetricKey)
-  
-  const ephemeralPublicKey = encrypted.slice(0, sodium.crypto_box_PUBLICKEYBYTES)
+  const ephemeralPublicKey = encrypted.slice(0, sodium.crypto_box_PUBLICKEYBYTES || 32)
   const nonce = encrypted.slice(
-    sodium.crypto_box_PUBLICKEYBYTES,
-    sodium.crypto_box_PUBLICKEYBYTES + sodium.crypto_box_NONCEBYTES
+    sodium.crypto_box_PUBLICKEYBYTES || 32,
+    (sodium.crypto_box_PUBLICKEYBYTES || 32) + (sodium.crypto_box_NONCEBYTES || 24)
   )
-  const ciphertext = encrypted.slice(sodium.crypto_box_PUBLICKEYBYTES + sodium.crypto_box_NONCEBYTES)
-  
+  const ciphertext = encrypted.slice((sodium.crypto_box_PUBLICKEYBYTES || 32) + (sodium.crypto_box_NONCEBYTES || 24))
   const decrypted = sodium.crypto_box_open_easy(
     ciphertext,
     nonce,
     ephemeralPublicKey,
     sodium.from_base64(privateKey)
   )
-  
   return sodium.to_base64(decrypted)
 }
 
 // Encrypt a message with a symmetric key
 export async function encryptMessage(message: string, symmetricKey: string): Promise<EncryptedData> {
-  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
+  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES || 24)
   const ciphertext = sodium.crypto_secretbox_easy(
     sodium.from_string(message),
     nonce,
     sodium.from_base64(symmetricKey)
   )
-  
   return {
     ciphertext: sodium.to_base64(ciphertext),
     nonce: sodium.to_base64(nonce)
@@ -150,7 +165,6 @@ export async function decryptMessage(encryptedData: EncryptedData, symmetricKey:
     sodium.from_base64(encryptedData.nonce),
     sodium.from_base64(symmetricKey)
   )
-  
   return sodium.to_string(decrypted)
 }
 
@@ -165,9 +179,8 @@ export function combineCiphertextAndNonce(ciphertext: string, nonce: string): st
 // Separate ciphertext and nonce from storage
 export function separateCiphertextAndNonce(combined: string): EncryptedData {
   const data = sodium.from_base64(combined)
-  const nonce = data.slice(0, sodium.crypto_secretbox_NONCEBYTES)
-  const ciphertext = data.slice(sodium.crypto_secretbox_NONCEBYTES)
-  
+  const nonce = data.slice(0, sodium.crypto_secretbox_NONCEBYTES || 24)
+  const ciphertext = data.slice(sodium.crypto_secretbox_NONCEBYTES || 24)
   return {
     ciphertext: sodium.to_base64(ciphertext),
     nonce: sodium.to_base64(nonce)

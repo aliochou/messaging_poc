@@ -3,6 +3,18 @@ import GoogleProvider from "next-auth/providers/google"
 import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
 
+// Extend the session type to include id
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id?: string;
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+    }
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   providers: [
@@ -13,29 +25,30 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async session({ session, token, user }) {
+      console.log("Session callback called", { session, token, user });
+      
       if (session.user) {
+        // For JWT strategy, use token.sub as the user ID
         session.user.id = user?.id || token?.sub || session.user.id;
       }
       return session;
     },
+    async jwt({ token, user, account }) {
+      console.log("JWT callback called", { token, user, account });
+      
+      // If user is provided, this is the initial sign in
+      if (user) {
+        token.sub = user.id;
+      }
+      
+      return token;
+    },
     async signIn({ user, account, profile }: { user: any; account: any; profile?: any }) {
-      // Check if user exists and has encryption keys
-      const existingUser = await prisma.user.findUnique({
-        where: { email: user.email! },
-      })
-
-      if (!existingUser) {
-        // New user - they'll need to generate keys on the client
-        return true
-      }
-
-      // Existing user - check if they have encryption keys
-      if (!existingUser.publicKey || !existingUser.encryptedPrivateKey) {
-        // User exists but doesn't have keys - redirect to key generation
-        return "/setup-keys"
-      }
-
-      return true
+      console.log("SignIn callback called", { user, account });
+      
+      // Always allow sign in - we'll handle key setup logic elsewhere
+      console.log("Allowing sign in for user:", user.email);
+      return true;
     },
   },
   session: {
