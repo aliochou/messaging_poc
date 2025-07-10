@@ -16,12 +16,14 @@ interface Message {
 
 interface ChatInterfaceProps {
   conversationId: string
+  currentUserEmail: string
 }
 
-export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
+export default function ChatInterface({ conversationId, currentUserEmail }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [loading, setLoading] = useState(true)
+  const [conversation, setConversation] = useState<any>(null)
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -37,9 +39,21 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
         setLoading(false)
       }
     }
-
+    const fetchConversation = async () => {
+      try {
+        const response = await fetch(`/api/conversations`)
+        if (response.ok) {
+          const data = await response.json()
+          const found = data.find((c: any) => c.id === conversationId)
+          setConversation(found)
+        }
+      } catch (error) {
+        console.error('Error fetching conversation:', error)
+      }
+    }
     if (conversationId) {
       fetchMessages()
+      fetchConversation()
     }
   }, [conversationId])
 
@@ -70,6 +84,19 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
     }
   }
 
+  // Determine chat header name
+  let chatHeader = 'Conversation';
+  if (conversation) {
+    if (conversation.isGroup && conversation.name) {
+      chatHeader = conversation.name;
+    } else if (conversation.participants) {
+      const other = conversation.participants.find((p: any) => p.user.email !== currentUserEmail)
+      if (other) {
+        chatHeader = other.user.name || other.user.email
+      }
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -80,6 +107,10 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
 
   return (
     <div className="flex-1 flex flex-col">
+      {/* Chat Header */}
+      <div className="p-4 border-b border-gray-200 bg-white">
+        <h2 className="text-lg font-semibold text-gray-900">{chatHeader}</h2>
+      </div>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
@@ -111,7 +142,6 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
           ))
         )}
       </div>
-
       {/* Message Input */}
       <div className="border-t border-gray-200 p-4">
         <form onSubmit={handleSendMessage} className="flex space-x-4">
@@ -120,7 +150,7 @@ export default function ChatInterface({ conversationId }: ChatInterfaceProps) {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Type a message..."
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
           />
           <button
             type="submit"

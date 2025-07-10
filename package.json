@@ -11,7 +11,8 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "seed:test-users": "tsx scripts/seed-test-users.ts",
-    "seed:test-conversations": "tsx scripts/create-test-conversations.ts"
+    "seed:test-conversations": "tsx scripts/create-test-conversations.ts",
+    "purge:conversations": "tsx scripts/purge-conversations.ts"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",

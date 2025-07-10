@@ -71,6 +71,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Check for existing 1:1 conversation
+    if (!isGroup && participantEmails.length === 1) {
+      // Find a conversation where isGroup is false and participants are exactly the two users
+      const existing = await prisma.conversation.findFirst({
+        where: {
+          isGroup: false,
+          participants: {
+            some: { userId: currentUser.id },
+          },
+          AND: [
+            {
+              participants: {
+                some: { user: { email: participantEmails[0] } }
+              }
+            },
+            {
+              participants: {
+                every: {
+                  OR: [
+                    { userId: currentUser.id },
+                    { user: { email: participantEmails[0] } }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        include: {
+          participants: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  image: true
+                }
+              }
+            }
+          }
+        }
+      })
+      if (existing) {
+        return NextResponse.json(existing)
+      }
+    }
+
     // Create conversation
     const conversation = await prisma.conversation.create({
       data: {
@@ -80,13 +127,11 @@ export async function POST(request: NextRequest) {
         participants: {
           create: [
             {
-              userId: currentUser.id,
+              user: { connect: { id: currentUser.id } },
               role: 'admin'
             },
             ...participantEmails.map((email: string) => ({
-              user: {
-                connect: { email }
-              },
+              user: { connect: { email } },
               role: 'member'
             }))
           ]

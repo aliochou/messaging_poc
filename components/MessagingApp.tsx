@@ -10,6 +10,7 @@ export default function MessagingApp() {
   const { data: session } = useSession()
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
   const [showNewConversation, setShowNewConversation] = useState(false)
+  const [refreshTrigger, setRefreshTrigger] = useState(0)
 
   if (!session) {
     return <div>Loading...</div>
@@ -54,13 +55,15 @@ export default function MessagingApp() {
         <ConversationList
           selectedConversation={selectedConversation}
           onSelectConversation={setSelectedConversation}
+          currentUserEmail={session.user?.email || ''}
+          refreshTrigger={refreshTrigger}
         />
       </div>
 
       {/* Chat Interface */}
       <div className="flex-1 flex flex-col">
         {selectedConversation ? (
-          <ChatInterface conversationId={selectedConversation} />
+          <ChatInterface conversationId={selectedConversation} currentUserEmail={session.user?.email || ''} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             <div className="text-center">
@@ -81,6 +84,7 @@ export default function MessagingApp() {
           onConversationCreated={(conversationId) => {
             setSelectedConversation(conversationId)
             setShowNewConversation(false)
+            setRefreshTrigger((prev) => prev + 1)
           }}
         />
       )}

@@ -24,9 +24,11 @@ interface Conversation {
 interface ConversationListProps {
   selectedConversation: string | null
   onSelectConversation: (conversationId: string) => void
+  currentUserEmail: string
+  refreshTrigger?: any
 }
 
-export default function ConversationList({ selectedConversation, onSelectConversation }: ConversationListProps) {
+export default function ConversationList({ selectedConversation, onSelectConversation, currentUserEmail, refreshTrigger }: ConversationListProps) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -46,7 +48,7 @@ export default function ConversationList({ selectedConversation, onSelectConvers
     }
 
     fetchConversations()
-  }, [])
+  }, [refreshTrigger])
 
   const getConversationName = (conversation: Conversation) => {
     if (conversation.isGroup && conversation.name) {
@@ -54,7 +56,7 @@ export default function ConversationList({ selectedConversation, onSelectConvers
     }
     
     // For 1:1 conversations, show the other participant's name
-    const otherParticipants = conversation.participants.filter(p => p.user.email !== 'current-user@example.com')
+    const otherParticipants = conversation.participants.filter(p => p.user.email !== currentUserEmail)
     if (otherParticipants.length > 0) {
       return otherParticipants[0].user.name || otherParticipants[0].user.email
     }
@@ -66,7 +68,9 @@ export default function ConversationList({ selectedConversation, onSelectConvers
     if (conversation.messages.length === 0) {
       return 'No messages yet'
     }
-    return '🔒 Encrypted message'
+    const lastMessage = conversation.messages[0]
+    // Show a lock icon and the first 32 chars of the ciphertext as a preview
+    return `🔒 ${lastMessage.ciphertext.slice(0, 32)}${lastMessage.ciphertext.length > 32 ? '…' : ''}`
   }
 
   if (loading) {
