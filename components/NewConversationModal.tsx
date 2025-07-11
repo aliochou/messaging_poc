@@ -14,6 +14,7 @@ export default function NewConversationModal({ onClose, onConversationCreated }:
   const [loading, setLoading] = useState(false)
   const [addressBook, setAddressBook] = useState<any[]>([])
   const [addressBookLoading, setAddressBookLoading] = useState(true)
+  const [selectedUsers, setSelectedUsers] = useState<any[]>([])
 
   useEffect(() => {
     // Only fetch address book for 1:1 conversations
@@ -27,12 +28,47 @@ export default function NewConversationModal({ onClose, onConversationCreated }:
     }
   }, [isGroup])
 
+  // Helper to get unique, trimmed emails from both sources
+  function getCombinedEmails(participantEmails: string, selectedUsers: any[]) {
+    const manual = participantEmails.split(',').map(e => e.trim()).filter(Boolean)
+    const selected = selectedUsers.map(u => u.email)
+    return Array.from(new Set([...manual, ...selected]))
+  }
+
+  // Sync participantEmails field with selected users
+  useEffect(() => {
+    const combined = getCombinedEmails(participantEmails, selectedUsers)
+    if (combined.join(',') !== participantEmails.split(',').map(e => e.trim()).filter(Boolean).join(',')) {
+      setParticipantEmails(combined.join(', '))
+    }
+    // Auto-check group if 2+ unique emails
+    if (combined.length > 1 && !isGroup) setIsGroup(true)
+    if (combined.length <= 1 && isGroup) setIsGroup(false)
+    // eslint-disable-next-line
+  }, [selectedUsers])
+
+  // When participantEmails field changes, update selectedUsers
+  useEffect(() => {
+    const emails = participantEmails.split(',').map(e => e.trim()).filter(Boolean)
+    setSelectedUsers(addressBook.filter(u => emails.includes(u.email)))
+    // eslint-disable-next-line
+  }, [participantEmails, addressBook])
+
+  // Toggle user selection
+  function toggleUser(user: any) {
+    if (selectedUsers.some(u => u.email === user.email)) {
+      setSelectedUsers(selectedUsers.filter(u => u.email !== user.email))
+    } else {
+      setSelectedUsers([...selectedUsers, user])
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
     try {
-      const emails = participantEmails.split(',').map(email => email.trim()).filter(email => email)
+      const emails = getCombinedEmails(participantEmails, selectedUsers)
       
       const response = await fetch('/api/conversations', {
         method: 'POST',
@@ -80,12 +116,13 @@ export default function NewConversationModal({ onClose, onConversationCreated }:
                     <button
                       type="button"
                       key={user.email}
-                      onClick={() => setParticipantEmails(user.email)}
-                      className="flex items-center space-x-2 px-2 py-1 border border-gray-300 rounded hover:bg-blue-50 focus:outline-none"
+                      onClick={() => toggleUser(user)}
+                      className={`flex items-center space-x-2 px-2 py-1 border rounded focus:outline-none ${selectedUsers.some(u => u.email === user.email) ? 'bg-blue-100 border-blue-400' : 'border-gray-300 hover:bg-blue-50'}`}
                     >
                       <span className="w-6 h-6 rounded-full bg-gray-300 flex items-center justify-center text-sm font-medium text-gray-700">
                         {getUserInitial(user)}
                       </span>
+                      <span className="text-sm text-gray-800">{user.name || user.email}</span>
                     </button>
                   ))}
                 </div>
@@ -129,9 +166,8 @@ export default function NewConversationModal({ onClose, onConversationCreated }:
                 type="text"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
-                placeholder="Enter group name"
+                placeholder="Enter group name (optional)"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500"
-                required
               />
             </div>
           )}

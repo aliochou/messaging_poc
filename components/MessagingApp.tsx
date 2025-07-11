@@ -63,7 +63,11 @@ export default function MessagingApp() {
       {/* Chat Interface */}
       <div className="flex-1 flex flex-col">
         {selectedConversation ? (
-          <ChatInterface conversationId={selectedConversation} currentUserEmail={session.user?.email || ''} />
+          <ChatInterface
+            conversationId={selectedConversation}
+            currentUserEmail={session.user?.email || ''}
+            refreshConversations={() => setRefreshTrigger((prev) => prev + 1)}
+          />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
             <div className="text-center">

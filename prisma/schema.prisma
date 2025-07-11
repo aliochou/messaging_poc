@@ -87,7 +87,9 @@ model Message {
   senderId       String
   type           String   @default("text") // "text", "media"
   ciphertext     String   // Base64 encoded encrypted message
-  mediaUrl       String?  // For media messages
+  mediaUrl       String?  // For media messages (encrypted file path)
+  thumbnailUrl   String?  // For media messages (encrypted thumbnail path)
+  originalFilename String? // Original filename for download
   status         String   @default("sent") // "sent", "delivered", "read"
   createdAt      DateTime @default(now())
 
