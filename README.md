@@ -209,6 +209,203 @@ GOOGLE_CLIENT_SECRET="your-google-client-secret"
 - No audit logging
 - No backup/recovery mechanisms
 
+---
+
+## 🔒 SECURITY AUDIT - January 11, 2025
+
+### 🚨 CRITICAL VULNERABILITIES
+
+#### 1. **Static Encryption Key (CRITICAL)**
+**Location**: `app/api/media/upload/route.ts:20`
+```typescript
+const SYMMETRIC_KEY = Buffer.from(Array(32).fill(1))
+```
+**Risk**: All media files are encrypted with the same static key, making them easily decryptable.
+**Impact**: Complete compromise of media encryption
+**Recommendation**: Generate unique keys per conversation using proper key derivation
+
+#### 2. **Private Key Storage in localStorage (CRITICAL)**
+**Location**: `hooks/useCrypto.ts:25-30`
+```typescript
+localStorage.setItem(`privateKey_${session.user.email}`, keypair.privateKey)
+```
+**Risk**: XSS attacks can steal private keys from localStorage
+**Impact**: Complete compromise of user's encryption keys
+**Recommendation**: Use Web Crypto API's secure storage or hardware-backed key storage
+
+#### 3. **Weak Password Derivation (HIGH)**
+**Location**: `lib/crypto.ts:35-45`
+```typescript
+const password = session.user.email // Simple example - use actual password in production
+```
+**Risk**: Using email as password is extremely weak
+**Impact**: Easy brute-force of encrypted private keys
+**Recommendation**: Require strong user passwords and use Argon2/scrypt for key derivation
+
+### 🟡 HIGH SEVERITY ISSUES
+
+#### 4. **No Rate Limiting (HIGH)**
+**Risk**: Brute force attacks, DoS, resource exhaustion
+**Impact**: Service disruption, unauthorized access
+**Recommendation**: Implement rate limiting middleware for all API endpoints
+
+#### 5. **Missing Input Validation (HIGH)**
+**Risk**: Injection attacks, path traversal, malicious file uploads
+**Impact**: Server compromise, data corruption
+**Recommendation**: Add comprehensive input validation using libraries like Zod
+
+#### 6. **No CSRF Protection (HIGH)**
+**Risk**: Cross-site request forgery attacks
+**Impact**: Unauthorized actions on behalf of users
+**Recommendation**: Add CSRF tokens to all state-changing requests
+
+#### 7. **Insecure File Upload (HIGH)**
+**Risk**: Malicious file uploads, path traversal
+**Impact**: Server compromise, data exfiltration
+**Recommendation**: Add file content validation and proper sanitization
+
+### 🟢 MEDIUM SEVERITY ISSUES
+
+#### 8. **No Forward Secrecy (MEDIUM)**
+**Risk**: Compromised keys expose all historical messages
+**Impact**: Long-term privacy compromise
+**Recommendation**: Implement Perfect Forward Secrecy (PFS) with ephemeral keys
+
+#### 9. **Missing Message Integrity (MEDIUM)**
+**Risk**: Message tampering, replay attacks
+**Impact**: Message authenticity compromise
+**Recommendation**: Add message signatures using digital signatures
+
+#### 10. **No Audit Logging (MEDIUM)**
+**Risk**: Inability to detect security incidents
+**Impact**: Delayed incident response
+**Recommendation**: Implement comprehensive security event logging
+
+### 📋 IMMEDIATE ACTION ITEMS
+
+#### Priority 1 (Critical - Fix Immediately)
+1. **Replace static encryption key** with per-conversation keys
+2. **Move private keys** from localStorage to secure storage
+3. **Implement proper password** requirements and key derivation
+4. **Add rate limiting** to all API endpoints
+
+#### Priority 2 (High - Fix Within 1 Week)
+5. **Add comprehensive input validation** to all endpoints
+6. **Implement CSRF protection** for all state-changing operations
+7. **Add file upload security** with content validation
+8. **Implement audit logging** for security events
+
+#### Priority 3 (Medium - Fix Within 1 Month)
+9. **Implement forward secrecy** with ephemeral keys
+10. **Add message integrity** with digital signatures
+11. **Strengthen session management** with proper timeouts
+12. **Add security headers** and CSP
+
+### ⚠️ PRODUCTION READINESS CHECKLIST
+
+**Before deploying to production, ensure:**
+
+- [ ] All critical vulnerabilities are fixed
+- [ ] Rate limiting is implemented
+- [ ] Input validation is comprehensive
+- [ ] Security headers are configured
+- [ ] Audit logging is in place
+- [ ] Penetration testing is completed
+- [ ] Security monitoring is implemented
+- [ ] Incident response plan is ready
+
+### 📊 RISK ASSESSMENT SUMMARY
+
+| Vulnerability | Severity | Impact | Effort | Priority |
+|--------------|----------|--------|--------|----------|
+| Static encryption key | Critical | High | Medium | P1 |
+| localStorage private keys | Critical | High | High | P1 |
+| No rate limiting | High | Medium | Low | P1 |
+| Missing input validation | High | High | Medium | P2 |
+| No CSRF protection | High | Medium | Medium | P2 |
+| Weak password derivation | High | High | Medium | P1 |
+
+**Overall Risk Level: CRITICAL** - This application is not ready for production use without significant security improvements.
+
+### 🔧 SPECIFIC IMPLEMENTATION RECOMMENDATIONS
+
+#### 1. Secure Key Management
+```typescript
+// Replace static key with proper key derivation
+async function deriveConversationKey(conversationId: string, userKey: string) {
+  const salt = await getConversationSalt(conversationId)
+  return await sodium.crypto_pwhash(
+    32,
+    conversationId + userKey,
+    salt,
+    sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
+    sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE
+  )
+}
+```
+
+#### 2. Secure Private Key Storage
+```typescript
+// Use Web Crypto API for secure storage
+async function storePrivateKey(key: string, password: string) {
+  const encryptedKey = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: generateIV() },
+    await deriveKeyFromPassword(password),
+    new TextEncoder().encode(key)
+  )
+  // Store encrypted key securely
+}
+```
+
+#### 3. Input Validation
+```typescript
+// Add comprehensive validation
+import { z } from 'zod'
+
+const uploadSchema = z.object({
+  conversationId: z.string().cuid(),
+  type: z.enum(['image', 'video', 'pdf']),
+  file: z.instanceof(File),
+  originalFilename: z.string().min(1).max(255)
+})
+```
+
+#### 4. Rate Limiting
+```typescript
+// Implement rate limiting
+import { rateLimit } from 'express-rate-limit'
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests from this IP'
+})
+```
+
+### 🗓️ SECURITY ROADMAP
+
+#### Phase 1: Critical Fixes (Week 1)
+- [ ] Replace static encryption key
+- [ ] Implement secure key storage
+- [ ] Add rate limiting
+- [ ] Implement input validation
+
+#### Phase 2: Security Hardening (Month 1)
+- [ ] Add CSRF protection
+- [ ] Implement audit logging
+- [ ] Add security headers
+- [ ] Strengthen session management
+
+#### Phase 3: Advanced Security (Month 2-3)
+- [ ] Implement forward secrecy
+- [ ] Add message integrity
+- [ ] Implement key rotation
+- [ ] Add penetration testing
+
+---
+
+**Note**: This security audit was conducted on January 11, 2025. All vulnerabilities identified must be addressed before any production deployment.
+
 ## Contributing
 
 1. Fork the repository
