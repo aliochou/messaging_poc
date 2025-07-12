@@ -41,6 +41,85 @@ interface MediaMessage {
   conversationId: string;
 }
 
+// Thumbnail viewer component that decrypts thumbnails
+function ThumbnailViewer({ thumbnailUrl, conversationId, conversationKey, originalFilename, onClick }: {
+  thumbnailUrl: string
+  conversationId: string
+  conversationKey: Uint8Array
+  originalFilename?: string
+  onClick: () => void
+}) {
+  const [thumbnailBlob, setThumbnailBlob] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let url: string | null = null
+    setLoading(true)
+    setError(null)
+    setThumbnailBlob(null)
+
+    async function fetchAndDecryptThumbnail() {
+      try {
+        await sodium.ready
+        const res = await fetch(`/api/media/download?conversationId=${conversationId}&filename=${encodeURIComponent(thumbnailUrl.split('/').pop()!)}`)
+        if (!res.ok) {
+          throw new Error('Failed to fetch thumbnail')
+        }
+        const encrypted = new Uint8Array(await res.arrayBuffer())
+        console.log('ThumbnailViewer: encrypted length', encrypted.length)
+        const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES)
+        const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES)
+        console.log('ThumbnailViewer: nonce', nonce)
+        console.log('ThumbnailViewer: ciphertext length', ciphertext.length)
+        const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, conversationKey)
+        if (!decrypted) {
+          console.error('ThumbnailViewer: Decryption failed')
+          throw new Error('Thumbnail decryption failed')
+        }
+        console.log('ThumbnailViewer: decrypted length', decrypted.length)
+        console.log('ThumbnailViewer: decrypted first 16 bytes', Array.from(decrypted.slice(0, 16)))
+        const blob = new Blob([decrypted], { type: 'image/jpeg' })
+        url = URL.createObjectURL(blob)
+        setThumbnailBlob(url)
+        setLoading(false)
+      } catch (err) {
+        console.error('ThumbnailViewer error:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load thumbnail')
+        setLoading(false)
+      }
+    }
+
+    fetchAndDecryptThumbnail()
+    return () => { if (url) URL.revokeObjectURL(url) }
+  }, [thumbnailUrl, conversationId, conversationKey])
+
+  if (loading) {
+    return (
+      <div className="w-32 h-32 bg-gray-100 rounded border border-gray-200 mt-2 flex items-center justify-center">
+        <div className="text-gray-400 text-xs">Loading...</div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="w-32 h-32 bg-gray-100 rounded border border-gray-200 mt-2 flex items-center justify-center">
+        <div className="text-red-400 text-xs">Error</div>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={thumbnailBlob!}
+      alt={originalFilename || 'media'}
+      className="w-32 h-32 object-cover rounded cursor-pointer border border-gray-200 mt-2"
+      onClick={onClick}
+    />
+  )
+}
+
 export default function ChatInterface({ conversationId, currentUserEmail, refreshConversations }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
@@ -198,8 +277,8 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
   }
 
   // Utility: generate image thumbnail (200x200, fit inside, JPEG)
-  async function generateImageThumbnail(file) {
-    return new Promise((resolve, reject) => {
+  async function generateImageThumbnail(file: File) {
+    return new Promise<Blob>((resolve, reject) => {
       const img = new window.Image();
       img.onload = function () {
         const canvas = document.createElement('canvas');
@@ -207,6 +286,10 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         canvas.toBlob(blob => {
           if (blob) resolve(blob);
@@ -219,26 +302,34 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
   }
 
   // Utility: generate PDF thumbnail (first page, 200px wide, JPEG)
-  async function generatePdfThumbnail(file) {
-    const pdfjsLib = await import('pdfjs-dist/build/pdf');
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const page = await pdf.getPage(1);
-    const viewport = page.getViewport({ scale: 1 });
-    const scale = 200 / viewport.width;
-    const scaledViewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = scaledViewport.width;
-    canvas.height = scaledViewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(blob => {
-        if (blob) resolve(blob);
-        else reject(new Error('Failed to create PDF thumbnail blob'));
-      }, 'image/jpeg', 0.8);
-    });
+  async function generatePdfThumbnail(file: File) {
+    try {
+      const pdfjsLib = await import('pdfjs-dist/build/pdf');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale: 1 });
+      const scale = 200 / viewport.width;
+      const scaledViewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Failed to get canvas context');
+      }
+      await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+      return new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create PDF thumbnail blob'));
+        }, 'image/jpeg', 0.8);
+      });
+    } catch (err) {
+      console.error('generatePdfThumbnail error:', err);
+      throw err;
+    }
   }
 
   async function encryptFileBuffer(buffer: ArrayBuffer, key: Uint8Array, mimeType: string) {
@@ -260,6 +351,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     if (isImage || isPdf) {
       // Encrypt client-side
       const buffer = await file.arrayBuffer()
+      console.log('ChatInterface: file buffer first 16 bytes before encryption', Array.from(new Uint8Array(buffer).slice(0, 16)))
       uploadBlob = await encryptFileBuffer(buffer, conversationKey, file.type)
       uploadType = isImage ? 'image' : 'pdf'
       // Generate and encrypt thumbnail
@@ -294,7 +386,18 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
       xhr.open('POST', '/api/media/upload')
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
-          setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: Math.round((e.loaded / e.total) * 100) } : f))
+          console.log('Upload progress event:', { fileName: file.name, loaded: e.loaded, total: e.total })
+          setUploadingFiles(prev => {
+            // Try to match by name, fallback to first uploading file
+            const idx = prev.findIndex(f => f.name === file.name)
+            if (idx !== -1) {
+              return prev.map((f, i) => i === idx ? { ...f, progress: Math.round((e.loaded / e.total) * 100) } : f)
+            } else if (prev.length > 0) {
+              return prev.map((f, i) => i === 0 ? { ...f, progress: Math.round((e.loaded / e.total) * 100) } : f)
+            } else {
+              return prev
+            }
+          })
         }
       }
       xhr.onload = () => {
@@ -486,7 +589,12 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div
+      className="flex-1 flex flex-col bg-white"
+      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragActive(true); }}
+      onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setDragActive(false); }}
+      onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragActive(false); if (e.dataTransfer.files && e.dataTransfer.files.length > 0) { handleFiles(Array.from(e.dataTransfer.files)); } }}
+    >
       {/* Chat Header */}
       <div className="p-4 border-b border-gray-200 bg-white flex items-center space-x-2">
         {isGroup && editingName ? (
@@ -583,7 +691,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
         </div>
       )}
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
         {messages.length === 0 ? (
           <div className="text-center text-gray-500">
             <p>No messages yet</p>
@@ -609,10 +717,11 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
                   {new Date(message.createdAt).toLocaleTimeString()}
                 </p>
                 {message.type === 'media' && message.thumbnailUrl ? (
-                  <img
-                    src={`/api/media/download?conversationId=${conversationId}&filename=${encodeURIComponent(message.thumbnailUrl.split('/').pop()!)}`}
-                    alt={message.originalFilename || 'media'}
-                    className="w-32 h-32 object-cover rounded cursor-pointer border border-gray-200 mt-2"
+                  <ThumbnailViewer
+                    thumbnailUrl={message.thumbnailUrl}
+                    conversationId={conversationId}
+                    conversationKey={conversationKey}
+                    originalFilename={message.originalFilename}
                     onClick={() => {
                       const idx = mediaMessages.findIndex(m => m.mediaUrl === message.mediaUrl)
                       setMediaViewerIndex(idx)

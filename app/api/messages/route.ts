@@ -30,7 +30,17 @@ export async function GET(request: NextRequest) {
           }
         }
       },
-      include: {
+      select: {
+        id: true,
+        conversationId: true,
+        senderId: true,
+        type: true,
+        ciphertext: true,
+        mediaUrl: true,
+        thumbnailUrl: true,
+        originalFilename: true,
+        status: true,
+        createdAt: true,
         sender: {
           select: {
             id: true,

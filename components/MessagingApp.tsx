@@ -17,9 +17,9 @@ export default function MessagingApp() {
   }
 
   return (
-    <div className="h-screen flex bg-gray-100">
+    <div className="min-h-screen h-screen flex bg-gray-100">
       {/* Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full flex-shrink-0">
         {/* Header */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
@@ -61,7 +61,7 @@ export default function MessagingApp() {
       </div>
 
       {/* Chat Interface */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col h-full">
         {selectedConversation ? (
           <ChatInterface
             conversationId={selectedConversation}

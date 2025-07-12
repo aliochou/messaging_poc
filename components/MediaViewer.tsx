@@ -35,11 +35,21 @@ export default function MediaViewer({ mediaList, initialIndex, onClose, conversa
       await sodium.ready
       const res = await fetch(`/api/media/download?conversationId=${media.conversationId}&filename=${encodeURIComponent(media.mediaUrl.split('/').pop()!)}`)
       const encrypted = new Uint8Array(await res.arrayBuffer())
+      console.log('MediaViewer: encrypted length', encrypted.length)
       const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES)
       const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES)
+      console.log('MediaViewer: nonce', nonce)
+      console.log('MediaViewer: ciphertext length', ciphertext.length)
       const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, conversationKey)
-      if (!decrypted) throw new Error('Decryption failed')
-      const blob = new Blob([decrypted], { type: getMimeType(media.type, media.originalFilename) })
+      if (!decrypted) {
+        console.error('MediaViewer: Decryption failed', { nonce, ciphertext, conversationKey })
+        throw new Error('Decryption failed')
+      }
+      console.log('MediaViewer: decrypted length', decrypted.length)
+      console.log('MediaViewer: decrypted first 16 bytes', Array.from(decrypted.slice(0, 16)))
+      const mimeType = getMimeType(media.type, media.originalFilename)
+      console.log('MediaViewer: Blob mimeType', mimeType)
+      const blob = new Blob([decrypted], { type: mimeType })
       url = URL.createObjectURL(blob)
       setMediaBlob(blob)
       setMediaUrl(url)
@@ -66,10 +76,12 @@ export default function MediaViewer({ mediaList, initialIndex, onClose, conversa
   }
 
   function getMimeType(type: string, filename: string) {
-    if (type === 'image') return 'image/jpeg'
-    if (type === 'video') return 'video/mp4'
-    if (type === 'pdf' || filename.endsWith('.pdf')) return 'application/pdf'
-    return 'application/octet-stream'
+    if (filename.endsWith('.png')) return 'image/png';
+    if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) return 'image/jpeg';
+    if (type === 'image') return 'image/jpeg'; // fallback
+    if (type === 'video') return 'video/mp4';
+    if (type === 'pdf' || filename.endsWith('.pdf')) return 'application/pdf';
+    return 'application/octet-stream';
   }
 
   function handleDownload() {
@@ -96,12 +108,20 @@ export default function MediaViewer({ mediaList, initialIndex, onClose, conversa
           ) : media.type === 'image' ? (
             <img src={mediaUrl!} alt={media.originalFilename} className="max-w-full max-h-[70vh] rounded" />
           ) : media.type === 'video' ? (
-            <video src={mediaUrl!} controls className="max-w-full max-h-[70vh] rounded" />
+            <video src={mediaUrl!} controls autoPlay className="max-w-full max-h-[70vh] rounded" />
           ) : media.type === 'pdf' ? (
             <iframe src={mediaUrl!} title={media.originalFilename} className="w-full h-[70vh] rounded bg-gray-100" />
           ) : null}
         </div>
         <button onClick={handleDownload} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Download</button>
+        <button onClick={() => {
+          if (!mediaBlob) return;
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(mediaBlob);
+          a.download = 'DEBUG-RAW-' + media.originalFilename;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        }} className="mt-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">Download Raw Decrypted</button>
       </div>
     </div>
   )

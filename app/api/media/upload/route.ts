@@ -16,8 +16,8 @@ const ALLOWED_TYPES = {
   pdf: ['application/pdf']
 }
 
-// Placeholder symmetric key (32 bytes for crypto_secretbox)
-const SYMMETRIC_KEY = Buffer.from('0123456789abcdef0123456789abcdef', 'utf-8')
+// Placeholder symmetric key (32 bytes for crypto_secretbox) - same as frontend
+const SYMMETRIC_KEY = Buffer.from(Array(32).fill(1))
 
 async function encryptBuffer(buffer: Buffer, key: Buffer) {
   await sodium.ready
@@ -29,6 +29,8 @@ async function encryptBuffer(buffer: Buffer, key: Buffer) {
 
 async function transcodeTo720pMp4(inputPath: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    console.log('Starting video transcoding:', { inputPath, outputPath })
+    
     ffmpeg(inputPath)
       .outputOptions([
         '-vf', 'scale=-2:720', // maintain aspect ratio, height=720
@@ -40,8 +42,20 @@ async function transcodeTo720pMp4(inputPath: string, outputPath: string): Promis
         '-movflags', '+faststart'
       ])
       .output(outputPath)
-      .on('end', resolve)
-      .on('error', reject)
+      .on('start', (commandLine) => {
+        console.log('FFmpeg command:', commandLine)
+      })
+      .on('progress', (progress) => {
+        console.log('Transcoding progress:', progress)
+      })
+      .on('end', () => {
+        console.log('Transcoding completed successfully')
+        resolve()
+      })
+      .on('error', (err) => {
+        console.error('Transcoding error:', err)
+        reject(err)
+      })
       .run()
   })
 }
@@ -54,21 +68,39 @@ async function generateVideoThumbnail(videoPath: string): Promise<Buffer> {
   // Extract frame at 1s as JPEG
   const thumbPath = videoPath + '-thumb.jpg'
   return new Promise((resolve, reject) => {
+    console.log('Generating thumbnail from:', videoPath)
+    console.log('Thumbnail will be saved to:', thumbPath)
+    
     ffmpeg(videoPath)
       .screenshots({
         timestamps: ['1'],
-        filename: thumbPath,
+        filename: path.basename(thumbPath),
         folder: path.dirname(videoPath),
         size: '200x?'
       })
+      .on('start', (commandLine) => {
+        console.log('FFmpeg thumbnail command:', commandLine)
+      })
+      .on('progress', (progress) => {
+        console.log('Thumbnail generation progress:', progress)
+      })
       .on('end', async () => {
         try {
+          console.log('Thumbnail generation completed, reading file...')
           const data = await fs.readFile(thumbPath)
+          console.log('Thumbnail file size:', data.length)
           await fs.unlink(thumbPath)
+          console.log('Thumbnail file cleaned up')
           resolve(data)
-        } catch (e) { reject(e) }
+        } catch (e) { 
+          console.error('Error reading thumbnail file:', e)
+          reject(e) 
+        }
       })
-      .on('error', reject)
+      .on('error', (err) => {
+        console.error('FFmpeg thumbnail error:', err)
+        reject(err)
+      })
   })
 }
 
@@ -107,7 +139,9 @@ export async function POST(request: NextRequest) {
     conversationId,
     type,
     file: file ? { name: file.name, type: file.type, size: file.size } : file,
-    originalFilename
+    originalFilename,
+    hasUploadedThumbnail: !!uploadedThumbnail,
+    uploadedThumbnailSize: uploadedThumbnail?.size
   })
 
   if (!conversationId || !type || !file || !originalFilename) {
@@ -143,47 +177,127 @@ export async function POST(request: NextRequest) {
   const ext = path.extname(originalFilename) || ''
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   let filePath = path.join(UPLOADS_DIR, `${id}${ext}`)
+  let finalExt = ext // Track the final extension for videos
+  let finalOriginalFilename = originalFilename // Track the final filename for videos
   const arrayBuffer = await file.arrayBuffer()
   let fileBuffer = Buffer.from(arrayBuffer)
-
-  // If video, transcode to 720p MP4
+  
   if (type === 'video') {
+    // For videos: save uploaded file, transcode, then encrypt
+    console.log('API upload: file buffer first 16 bytes before encryption', Array.from(fileBuffer.slice(0, 16)))
+    // Save uploaded file temporarily
     const tempPath = path.join(UPLOADS_DIR, `${id}-temp${ext}`)
     await fs.writeFile(tempPath, fileBuffer)
-    const mp4Path = path.join(UPLOADS_DIR, `${id}.mp4`)
-    await transcodeTo720pMp4(tempPath, mp4Path)
-    await fs.unlink(tempPath)
-    fileBuffer = await fs.readFile(mp4Path)
-    await fs.unlink(mp4Path)
-    filePath = path.join(UPLOADS_DIR, `${id}.mp4`)
-  }
-
-  // Save or generate encrypted thumbnail
-  let thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
-  if (type === 'video') {
-    // Generate thumbnail server-side for videos
-    const thumbBuffer = await generateVideoThumbnail(filePath)
-    const encryptedThumb = await encryptBuffer(thumbBuffer, SYMMETRIC_KEY)
-    await fs.writeFile(thumbPath, encryptedThumb)
-  } else if (uploadedThumbnail) {
-    // Save uploaded encrypted thumbnail for images and PDFs
-    const thumbArrayBuffer = await uploadedThumbnail.arrayBuffer()
-    await fs.writeFile(thumbPath, Buffer.from(thumbArrayBuffer))
+    
+    try {
+      // Transcode video to MP4
+      const transcodedPath = path.join(UPLOADS_DIR, `${id}-transcoded.mp4`)
+      await transcodeTo720pMp4(tempPath, transcodedPath)
+      
+      // Generate thumbnail from transcoded (unencrypted) file
+      console.log('Generating video thumbnail from transcoded file')
+      let thumbBuffer: Buffer
+      try {
+        thumbBuffer = await generateVideoThumbnail(transcodedPath)
+      } catch (error) {
+        console.error('Thumbnail generation failed, creating placeholder:', error)
+        // Create a video placeholder thumbnail
+        thumbBuffer = await sharp({
+          create: {
+            width: 200,
+            height: 150,
+            channels: 3,
+            background: { r: 50, g: 50, b: 50 }
+          }
+        }).jpeg().toBuffer()
+      }
+      const encryptedThumb = await encryptBuffer(thumbBuffer, SYMMETRIC_KEY)
+      const thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
+      await fs.writeFile(thumbPath, encryptedThumb)
+      
+      // Read transcoded file and encrypt
+      const transcodedBuffer = await fs.readFile(transcodedPath)
+      const encryptedBuffer = await encryptBuffer(transcodedBuffer, SYMMETRIC_KEY)
+      // Use .mp4 extension for transcoded videos
+      finalExt = '.mp4'
+      filePath = path.join(UPLOADS_DIR, `${id}${finalExt}`)
+      await fs.writeFile(filePath, encryptedBuffer)
+      // Update filename to reflect MP4 format
+      const nameWithoutExt = originalFilename.replace(/\.[^/.]+$/, '')
+      finalOriginalFilename = `${nameWithoutExt}.mp4`
+      // Clean up temp files
+      await fs.unlink(tempPath)
+      await fs.unlink(transcodedPath)
+    } catch (error) {
+      console.error('Video processing failed, using original file:', error)
+      // Fallback: encrypt original file without transcoding
+      const encryptedBuffer = await encryptBuffer(fileBuffer, SYMMETRIC_KEY)
+      await fs.writeFile(filePath, encryptedBuffer)
+      
+      // Create a simple placeholder thumbnail
+      const placeholderThumb = await sharp({
+        create: {
+          width: 200,
+          height: 150,
+          channels: 3,
+          background: { r: 100, g: 100, b: 100 }
+        }
+      }).jpeg().toBuffer()
+      const encryptedThumb = await encryptBuffer(placeholderThumb, SYMMETRIC_KEY)
+      const thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
+      await fs.writeFile(thumbPath, encryptedThumb)
+      
+      // Clean up temp file
+      await fs.unlink(tempPath)
+    }
   } else {
-    // Fallback: use encrypted file as thumbnail (should not happen)
-    await fs.writeFile(thumbPath, fileBuffer)
+    // For images and PDFs: save as-is (already encrypted by frontend)
+    console.log('API upload: saving already-encrypted file as-is for', type)
+    await fs.writeFile(filePath, fileBuffer)
   }
 
-  // Encrypt file buffer
-  const encryptedBuffer = await encryptBuffer(fileBuffer, SYMMETRIC_KEY)
-  await fs.writeFile(filePath, encryptedBuffer)
+  // Save or generate encrypted thumbnail for non-video files
+  if (type !== 'video') {
+    let thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
+    console.log('THUMBNAIL DEBUG:', { type, hasUploadedThumbnail: !!uploadedThumbnail })
+    if (uploadedThumbnail) {
+      // Save uploaded encrypted thumbnail for images and PDFs
+      console.log('Saving uploaded encrypted thumbnail')
+      const thumbArrayBuffer = await uploadedThumbnail.arrayBuffer()
+      await fs.writeFile(thumbPath, Buffer.from(thumbArrayBuffer))
+    } else {
+      // Fallback: use encrypted file as thumbnail (should not happen)
+      console.log('Using fallback thumbnail (encrypted file)')
+      await fs.writeFile(thumbPath, fileBuffer)
+    }
+  }
 
   // TODO: Transcode video, encrypt file and thumbnail, generate real thumbnail
 
   // Return file references
+  // Save media message in DB
+  const currentUser = await prisma.user.findUnique({ where: { email: session.user.email } })
+  if (currentUser) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        senderId: currentUser.id,
+        type: 'media',
+        ciphertext: '',
+        mediaUrl: `/uploads/${id}${finalExt}`,
+        thumbnailUrl: `/uploads/${id}-thumb.jpg`,
+        originalFilename: finalOriginalFilename
+      }
+    })
+    // Optionally, update conversation timestamp
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() }
+    })
+  }
   return NextResponse.json({
-    mediaUrl: `/uploads/${id}${ext}`,
+    mediaUrl: `/uploads/${id}${finalExt}`,
     thumbnailUrl: `/uploads/${id}-thumb.jpg`,
-    originalFilename
+    originalFilename: finalOriginalFilename
   })
 } 
