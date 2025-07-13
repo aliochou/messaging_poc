@@ -23,12 +23,21 @@ export default function MessagingApp() {
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
           <span className="font-bold text-lg text-gray-900">Messages</span>
-          <button
-            className="ml-2 px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
-            onClick={() => setShowNewConversation(true)}
-          >
-            +
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              className="px-2 py-1 rounded bg-blue-500 text-white text-sm hover:bg-blue-600"
+              onClick={() => setShowNewConversation(true)}
+            >
+              +
+            </button>
+            <button
+              className="px-2 py-1 rounded bg-gray-500 text-white text-sm hover:bg-gray-600"
+              onClick={() => signOut({ callbackUrl: '/' })}
+              title="Sign out"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
         <ConversationList
           selectedConversation={selectedConversation}
