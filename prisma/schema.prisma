@@ -48,6 +48,7 @@ model Conversation {
   participants ConversationParticipant[]
   messages    Message[]
   keys        ConversationKey[]
+  salt        ConversationSalt?
 
   @@map("conversations")
 }
@@ -79,6 +80,17 @@ model ConversationKey {
 
   @@unique([conversationId, userId])
   @@map("conversation_keys")
+}
+
+model ConversationSalt {
+  id             String @id @default(cuid())
+  conversationId String @unique
+  salt           String // Base64 encoded salt for key derivation
+
+  // Relations
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_salts")
 }
 
 model Message {

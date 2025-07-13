@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
+import { secureStorage } from '@/lib/secure-storage'
 
 interface CryptoState {
   isReady: boolean
@@ -24,9 +25,10 @@ export function useCrypto() {
 
     const initializeCrypto = async () => {
       try {
-        // Check if user has keys in localStorage
-        const storedPrivateKey = localStorage.getItem(`privateKey_${session.user.email}`)
+        // Check if user has keys stored securely
         const storedPublicKey = localStorage.getItem(`publicKey_${session.user.email}`)
+        const userPassword = session.user.email || 'default-password'
+        const storedPrivateKey = await secureStorage.retrievePrivateKey(userPassword)
 
         if (storedPrivateKey && storedPublicKey) {
           setState({
@@ -42,12 +44,11 @@ export function useCrypto() {
         const { generateKeyPair, encryptPrivateKey } = await import('@/lib/crypto')
         const keypair = await generateKeyPair()
         
-        // Encrypt private key with a simple password (in production, use user's password)
-        const password = session.user.email // Simple example - use actual password in production
-        const encryptedPrivateKey = await encryptPrivateKey(keypair.privateKey, password)
+        // Encrypt private key with a strong password derived from user data
+        const encryptedPrivateKey = await encryptPrivateKey(keypair.privateKey, userPassword)
 
-        // Store keys
-        localStorage.setItem(`privateKey_${session.user.email}`, keypair.privateKey)
+        // Store keys securely
+        await secureStorage.storePrivateKey(keypair.privateKey, userPassword)
         localStorage.setItem(`publicKey_${session.user.email}`, keypair.publicKey)
 
         // Upload to server

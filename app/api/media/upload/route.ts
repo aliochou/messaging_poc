@@ -7,6 +7,9 @@ import ffmpeg from 'fluent-ffmpeg'
 import sodium from 'libsodium-wrappers'
 import sharp from 'sharp'
 import { PDFDocument } from 'pdf-lib'
+import { encryptMedia, validateConversationAccess } from '@/lib/conversation-crypto'
+import { withRateLimit, rateLimitConfigs } from '@/lib/rate-limit'
+import { validateRequest, apiSchemas, sanitizeFilename } from '@/lib/validation'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
@@ -16,9 +19,7 @@ const ALLOWED_TYPES = {
   pdf: ['application/pdf']
 }
 
-// Placeholder symmetric key (32 bytes for crypto_secretbox) - same as frontend
-const SYMMETRIC_KEY = Buffer.from(Array(32).fill(1))
-
+// Secure conversation key derivation replaces static key
 async function encryptBuffer(buffer: Buffer, key: Buffer) {
   await sodium.ready
   const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
@@ -120,7 +121,7 @@ async function generatePdfThumbnail(buffer: Buffer): Promise<Buffer> {
   }).jpeg().toBuffer()
 }
 
-export async function POST(request: NextRequest) {
+const uploadHandler = withRateLimit(rateLimitConfigs.upload)(async (request: NextRequest) => {
   const session = await getServerSession()
   if (!session?.user?.email) {
     console.log('Unauthorized request')
@@ -211,13 +212,13 @@ export async function POST(request: NextRequest) {
           }
         }).jpeg().toBuffer()
       }
-      const encryptedThumb = await encryptBuffer(thumbBuffer, SYMMETRIC_KEY)
+      const encryptedThumb = await encryptMedia(thumbBuffer, conversationId, session.user.email)
       const thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
       await fs.writeFile(thumbPath, encryptedThumb)
       
       // Read transcoded file and encrypt
       const transcodedBuffer = await fs.readFile(transcodedPath)
-      const encryptedBuffer = await encryptBuffer(transcodedBuffer, SYMMETRIC_KEY)
+      const encryptedBuffer = await encryptMedia(transcodedBuffer, conversationId, session.user.email)
       // Use .mp4 extension for transcoded videos
       finalExt = '.mp4'
       filePath = path.join(UPLOADS_DIR, `${id}${finalExt}`)
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error('Video processing failed, using original file:', error)
       // Fallback: encrypt original file without transcoding
-      const encryptedBuffer = await encryptBuffer(fileBuffer, SYMMETRIC_KEY)
+      const encryptedBuffer = await encryptMedia(fileBuffer, conversationId, session.user.email)
       await fs.writeFile(filePath, encryptedBuffer)
       
       // Create a simple placeholder thumbnail
@@ -243,7 +244,7 @@ export async function POST(request: NextRequest) {
           background: { r: 100, g: 100, b: 100 }
         }
       }).jpeg().toBuffer()
-      const encryptedThumb = await encryptBuffer(placeholderThumb, SYMMETRIC_KEY)
+      const encryptedThumb = await encryptMedia(placeholderThumb, conversationId, session.user.email)
       const thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
       await fs.writeFile(thumbPath, encryptedThumb)
       
@@ -300,4 +301,6 @@ export async function POST(request: NextRequest) {
     thumbnailUrl: `/uploads/${id}-thumb.jpg`,
     originalFilename: finalOriginalFilename
   })
-} 
+})
+
+export const POST = uploadHandler 
