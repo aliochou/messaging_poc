@@ -149,6 +149,8 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
   // Placeholder: use a static 32-byte key for now (should fetch real key per conversation)
   const conversationKey = new Uint8Array(Array(32).fill(1))
 
+  const lastMessageRef = useRef<HTMLDivElement | null>(null)
+
   useEffect(() => {
     const fetchMessages = async () => {
       try {
@@ -178,6 +180,46 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     if (conversationId) {
       fetchMessages()
       fetchConversation()
+    }
+  }, [conversationId])
+
+  // Real-time message updates using SSE
+  useEffect(() => {
+    if (!conversationId) return
+
+    const eventSource = new EventSource(`/api/messages/stream?conversationId=${conversationId}`)
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'message') {
+          // Add new message to the list
+          setMessages(prev => {
+            // Check if message already exists to avoid duplicates
+            if (prev.some(msg => msg.id === data.data.id)) {
+              return prev
+            }
+            return [...prev, data.data]
+          })
+        } else if (data.type === 'connected') {
+          console.log('SSE connected for conversation:', conversationId)
+        } else if (data.type === 'error') {
+          console.error('SSE error:', data.error)
+        }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error)
+      }
+    }
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error)
+      eventSource.close()
+    }
+
+    // Cleanup on unmount or conversation change
+    return () => {
+      eventSource.close()
     }
   }, [conversationId])
 
@@ -242,8 +284,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
       })
 
       if (response.ok) {
-        const message = await response.json()
-        setMessages(prev => [...prev, message])
+        // Don't add to messages here - let SSE handle it for real-time updates
         setNewMessage('')
       }
     } catch (error) {
@@ -439,21 +480,8 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
           typeof res.thumbnailUrl === 'string' &&
           typeof res.originalFilename === 'string'
         ) {
-          let type: 'image' | 'video' | 'pdf' = 'image'
-          if (res.mediaUrl.endsWith('.mp4')) type = 'video'
-          else if (res.mediaUrl.endsWith('.pdf')) type = 'pdf'
-          setMessages(prev => [...prev, {
-            id: 'temp-' + Date.now() + Math.random(),
-            ciphertext: '',
-            createdAt: new Date().toISOString(),
-            sender: { id: 'me', email: currentUserEmail },
-            type: 'media',
-            mediaUrl: res.mediaUrl,
-            thumbnailUrl: res.thumbnailUrl,
-            originalFilename: res.originalFilename,
-            mediaType: type,
-            conversationId: conversationId
-          }])
+          // Don't add to messages here - let SSE handle it for real-time updates
+          console.log('Media upload successful:', res)
         }
         setUploadingFiles(prev => prev.filter(f => f.name !== file.name))
       } catch {
@@ -580,6 +608,12 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
       }
     })
 
+  useEffect(() => {
+    if (lastMessageRef.current) {
+      lastMessageRef.current.scrollIntoView({ behavior: 'auto' })
+    }
+  }, [messages, conversationId])
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -699,7 +733,11 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
           </div>
         ) : (
           messages.map((message, i) => (
-            <div key={message.id} className="flex items-start space-x-3">
+            <div
+              key={message.id}
+              className="flex items-start space-x-3"
+              ref={i === messages.length - 1 ? lastMessageRef : undefined}
+            >
               <div className="flex-shrink-0">
                 <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
                   <span className="text-xs font-medium text-gray-700">
