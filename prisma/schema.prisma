@@ -19,6 +19,8 @@ model User {
   emailVerified         DateTime?
   publicKey             String?   // Base64 encoded public key
   encryptedPrivateKey   String?   // Base64 encoded encrypted private key
+  csrfToken             String?   // CSRF protection token
+  csrfTokenExpiry       DateTime? // CSRF token expiration
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -139,6 +141,20 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  eventType   String   // AuditEventType enum value
+  severity    String   // AuditSeverity enum value
+  userId      String?
+  userEmail   String?
+  ipAddress   String?
+  userAgent   String?
+  details     String   // JSON string of additional details
+  timestamp   DateTime @default(now())
+
+  @@map("audit_logs")
 }
 
 model VerificationToken {

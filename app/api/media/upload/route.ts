@@ -10,6 +10,9 @@ import { PDFDocument } from 'pdf-lib'
 import { encryptMedia, validateConversationAccess } from '@/lib/conversation-crypto'
 import { withRateLimit, rateLimitConfigs } from '@/lib/rate-limit'
 import { validateRequest, apiSchemas, sanitizeFilename } from '@/lib/validation'
+import { withCSRFProtection } from '@/lib/csrf'
+import { withSecurityMiddleware } from '@/lib/security-headers'
+import { logMediaEvent, AuditEventType } from '@/lib/audit-log'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 const MAX_SIZE = 10 * 1024 * 1024 // 10MB
@@ -121,7 +124,9 @@ async function generatePdfThumbnail(buffer: Buffer): Promise<Buffer> {
   }).jpeg().toBuffer()
 }
 
-const uploadHandler = withRateLimit(rateLimitConfigs.upload)(async (request: NextRequest) => {
+const uploadHandler = withSecurityMiddleware(
+  withCSRFProtection(
+    withRateLimit(rateLimitConfigs.upload)(async (request: NextRequest) => {
   const session = await getServerSession()
   if (!session?.user?.email) {
     console.log('Unauthorized request')
@@ -299,11 +304,26 @@ const uploadHandler = withRateLimit(rateLimitConfigs.upload)(async (request: Nex
       data: { updatedAt: new Date() }
     })
   }
+
+  // Log media upload event
+  const securityContext = (request as any).securityContext
+  await logMediaEvent(
+    AuditEventType.MEDIA_UPLOADED,
+    session.user.email,
+    conversationId,
+    finalOriginalFilename,
+    file.size,
+    securityContext?.ipAddress,
+    securityContext?.userAgent
+  )
+
   return NextResponse.json({
     mediaUrl: `/uploads/${id}${finalExt}`,
     thumbnailUrl: `/uploads/${id}-thumb.jpg`,
     originalFilename: finalOriginalFilename
   })
-})
+    })
+  )
+)
 
 export const POST = uploadHandler 
