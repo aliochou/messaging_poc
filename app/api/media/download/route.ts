@@ -29,8 +29,10 @@ export async function GET(request: NextRequest) {
 
   // Serve decrypted file
   const filePath = path.join(UPLOADS_DIR, filename)
+  console.log('Media download: checking file path:', filePath)
   try {
     const encryptedFile = await fs.readFile(filePath)
+    console.log('Media download: file exists, size:', encryptedFile.length)
     const decryptedFile = await decryptMedia(encryptedFile, conversationId, session.user.email)
     
     // Determine content type based on filename

@@ -31,7 +31,10 @@ export default function MediaViewer({ mediaList, initialIndex, onClose }: MediaV
     setMediaBlob(null)
     setMediaUrl(null)
     async function fetchMedia() {
-      const res = await fetch(`/api/media/download?conversationId=${media.conversationId}&filename=${encodeURIComponent(media.mediaUrl.split('/').pop()!)}`)
+      // Extract filename more robustly, handling potential line breaks
+      const filename = media.mediaUrl.split('/').pop()?.replace(/\s+/g, '') || ''
+      console.log('MediaViewer: requesting filename:', filename)
+      const res = await fetch(`/api/media/download?conversationId=${media.conversationId}&filename=${encodeURIComponent(filename)}`)
       if (!res.ok) {
         throw new Error('Failed to fetch media')
       }

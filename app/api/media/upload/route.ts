@@ -252,9 +252,10 @@ const uploadHandler = withRateLimit(rateLimitConfigs.upload)(async (request: Nex
       await fs.unlink(tempPath)
     }
   } else {
-    // For images and PDFs: save as-is (already encrypted by frontend)
-    console.log('API upload: saving already-encrypted file as-is for', type)
-    await fs.writeFile(filePath, fileBuffer)
+    // For images and PDFs: encrypt and save
+    console.log('API upload: encrypting and saving file for', type)
+    const encryptedBuffer = await encryptMedia(fileBuffer, conversationId, session.user.email)
+    await fs.writeFile(filePath, encryptedBuffer)
   }
 
   // Save or generate encrypted thumbnail for non-video files
@@ -262,10 +263,12 @@ const uploadHandler = withRateLimit(rateLimitConfigs.upload)(async (request: Nex
     let thumbPath = path.join(UPLOADS_DIR, `${id}-thumb.jpg`)
     console.log('THUMBNAIL DEBUG:', { type, hasUploadedThumbnail: !!uploadedThumbnail })
     if (uploadedThumbnail) {
-      // Save uploaded encrypted thumbnail for images and PDFs
-      console.log('Saving uploaded encrypted thumbnail')
+      // Encrypt and save uploaded thumbnail for images and PDFs
+      console.log('Encrypting and saving uploaded thumbnail')
       const thumbArrayBuffer = await uploadedThumbnail.arrayBuffer()
-      await fs.writeFile(thumbPath, Buffer.from(thumbArrayBuffer))
+      const thumbBuffer = Buffer.from(thumbArrayBuffer)
+      const encryptedThumb = await encryptMedia(thumbBuffer, conversationId, session.user.email)
+      await fs.writeFile(thumbPath, encryptedThumb)
     } else {
       // Fallback: use encrypted file as thumbnail (should not happen)
       console.log('Using fallback thumbnail (encrypted file)')

@@ -60,7 +60,10 @@ function ThumbnailViewer({ thumbnailUrl, conversationId, originalFilename, onCli
 
     async function fetchThumbnail() {
       try {
-        const res = await fetch(`/api/media/download?conversationId=${conversationId}&filename=${encodeURIComponent(thumbnailUrl.split('/').pop()!)}`)
+        // Extract filename more robustly, handling potential line breaks
+        const filename = thumbnailUrl.split('/').pop()?.replace(/\s+/g, '') || ''
+        console.log('ThumbnailViewer: requesting filename:', filename)
+        const res = await fetch(`/api/media/download?conversationId=${conversationId}&filename=${encodeURIComponent(filename)}`)
         if (!res.ok) {
           throw new Error('Failed to fetch thumbnail')
         }
