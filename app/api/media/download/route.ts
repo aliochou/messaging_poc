@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next'
 import { prisma } from '@/lib/prisma'
 import fs from 'fs/promises'
 import path from 'path'
+import { decryptMedia, validateConversationAccess } from '@/lib/conversation-crypto'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 
@@ -20,32 +21,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing required params' }, { status: 400 })
   }
 
-  // Validate user is a participant
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-    include: { participants: { include: { user: true } } }
-  })
-  if (!conversation) {
-    return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
-  }
-  const isParticipant = conversation.participants.some(p => p.user.email === session.user.email)
-  if (!isParticipant) {
+  // Validate user has access to conversation
+  const hasAccess = await validateConversationAccess(conversationId, session.user.email)
+  if (!hasAccess) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Serve file
+  // Serve decrypted file
   const filePath = path.join(UPLOADS_DIR, filename)
   try {
-    const file = await fs.readFile(filePath)
-    // Set content type based on extension (encrypted, so use octet-stream)
-    return new NextResponse(file, {
+    const encryptedFile = await fs.readFile(filePath)
+    const decryptedFile = await decryptMedia(encryptedFile, conversationId, session.user.email)
+    
+    // Determine content type based on filename
+    const ext = path.extname(filename).toLowerCase()
+    let contentType = 'application/octet-stream'
+    if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg'
+    else if (ext === '.png') contentType = 'image/png'
+    else if (ext === '.mp4') contentType = 'video/mp4'
+    else if (ext === '.pdf') contentType = 'application/pdf'
+    
+    return new NextResponse(decryptedFile, {
       status: 200,
       headers: {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="${filename}"`
       }
     })
   } catch (e) {
-    return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    console.error('Media download error:', e)
+    return NextResponse.json({ error: 'File not found or decryption failed' }, { status: 404 })
   }
 } 

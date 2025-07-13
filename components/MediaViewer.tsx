@@ -13,10 +13,9 @@ interface MediaViewerProps {
   mediaList: MediaMessage[]
   initialIndex: number
   onClose: () => void
-  conversationKey: Uint8Array // 32 bytes
 }
 
-export default function MediaViewer({ mediaList, initialIndex, onClose, conversationKey }: MediaViewerProps) {
+export default function MediaViewer({ mediaList, initialIndex, onClose }: MediaViewerProps) {
   const [current, setCurrent] = useState(initialIndex)
   const [loading, setLoading] = useState(true)
   const [mediaBlob, setMediaBlob] = useState<Blob | null>(null)
@@ -25,28 +24,19 @@ export default function MediaViewer({ mediaList, initialIndex, onClose, conversa
 
   const media = mediaList[current]
 
-  // Fetch and decrypt media
+  // Fetch media (server handles decryption)
   useEffect(() => {
     let url: string | null = null
     setLoading(true)
     setMediaBlob(null)
     setMediaUrl(null)
-    async function fetchAndDecrypt() {
-      await sodium.ready
+    async function fetchMedia() {
       const res = await fetch(`/api/media/download?conversationId=${media.conversationId}&filename=${encodeURIComponent(media.mediaUrl.split('/').pop()!)}`)
-      const encrypted = new Uint8Array(await res.arrayBuffer())
-      console.log('MediaViewer: encrypted length', encrypted.length)
-      const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES)
-      const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES)
-      console.log('MediaViewer: nonce', nonce)
-      console.log('MediaViewer: ciphertext length', ciphertext.length)
-      const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, conversationKey)
-      if (!decrypted) {
-        console.error('MediaViewer: Decryption failed', { nonce, ciphertext, conversationKey })
-        throw new Error('Decryption failed')
+      if (!res.ok) {
+        throw new Error('Failed to fetch media')
       }
-      console.log('MediaViewer: decrypted length', decrypted.length)
-      console.log('MediaViewer: decrypted first 16 bytes', Array.from(decrypted.slice(0, 16)))
+      const decrypted = await res.arrayBuffer()
+      console.log('MediaViewer: decrypted length', decrypted.byteLength)
       const mimeType = getMimeType(media.type, media.originalFilename)
       console.log('MediaViewer: Blob mimeType', mimeType)
       const blob = new Blob([decrypted], { type: mimeType })
@@ -55,9 +45,9 @@ export default function MediaViewer({ mediaList, initialIndex, onClose, conversa
       setMediaUrl(url)
       setLoading(false)
     }
-    fetchAndDecrypt()
+    fetchMedia()
     return () => { if (url) URL.revokeObjectURL(url) }
-  }, [current, media, conversationKey])
+  }, [current, media])
 
   // Keyboard navigation and close
   useEffect(() => {

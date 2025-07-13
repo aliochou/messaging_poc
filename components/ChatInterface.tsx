@@ -42,10 +42,9 @@ interface MediaMessage {
 }
 
 // Thumbnail viewer component that decrypts thumbnails
-function ThumbnailViewer({ thumbnailUrl, conversationId, conversationKey, originalFilename, onClick }: {
+function ThumbnailViewer({ thumbnailUrl, conversationId, originalFilename, onClick }: {
   thumbnailUrl: string
   conversationId: string
-  conversationKey: Uint8Array
   originalFilename?: string
   onClick: () => void
 }) {
@@ -59,26 +58,14 @@ function ThumbnailViewer({ thumbnailUrl, conversationId, conversationKey, origin
     setError(null)
     setThumbnailBlob(null)
 
-    async function fetchAndDecryptThumbnail() {
+    async function fetchThumbnail() {
       try {
-        await sodium.ready
         const res = await fetch(`/api/media/download?conversationId=${conversationId}&filename=${encodeURIComponent(thumbnailUrl.split('/').pop()!)}`)
         if (!res.ok) {
           throw new Error('Failed to fetch thumbnail')
         }
-        const encrypted = new Uint8Array(await res.arrayBuffer())
-        console.log('ThumbnailViewer: encrypted length', encrypted.length)
-        const nonce = encrypted.slice(0, sodium.crypto_secretbox_NONCEBYTES)
-        const ciphertext = encrypted.slice(sodium.crypto_secretbox_NONCEBYTES)
-        console.log('ThumbnailViewer: nonce', nonce)
-        console.log('ThumbnailViewer: ciphertext length', ciphertext.length)
-        const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, conversationKey)
-        if (!decrypted) {
-          console.error('ThumbnailViewer: Decryption failed')
-          throw new Error('Thumbnail decryption failed')
-        }
-        console.log('ThumbnailViewer: decrypted length', decrypted.length)
-        console.log('ThumbnailViewer: decrypted first 16 bytes', Array.from(decrypted.slice(0, 16)))
+        const decrypted = await res.arrayBuffer()
+        console.log('ThumbnailViewer: decrypted length', decrypted.byteLength)
         const blob = new Blob([decrypted], { type: 'image/jpeg' })
         url = URL.createObjectURL(blob)
         setThumbnailBlob(url)
@@ -90,9 +77,9 @@ function ThumbnailViewer({ thumbnailUrl, conversationId, conversationKey, origin
       }
     }
 
-    fetchAndDecryptThumbnail()
+    fetchThumbnail()
     return () => { if (url) URL.revokeObjectURL(url) }
-  }, [thumbnailUrl, conversationId, conversationKey])
+      }, [thumbnailUrl, conversationId])
 
   if (loading) {
     return (
@@ -146,8 +133,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     'application/pdf'
   ]
 
-  // Placeholder: use a static 32-byte key for now (should fetch real key per conversation)
-  const conversationKey = new Uint8Array(Array(32).fill(1))
+  // Server now handles decryption, no client-side key needed
 
   const lastMessageRef = useRef<HTMLDivElement | null>(null)
 
@@ -373,13 +359,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     }
   }
 
-  async function encryptFileBuffer(buffer: ArrayBuffer, key: Uint8Array, mimeType: string) {
-    await sodium.ready
-    const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES)
-    const ciphertext = sodium.crypto_secretbox_easy(new Uint8Array(buffer), nonce, key)
-    // Store as: nonce + ciphertext, preserve original MIME type
-    return new Blob([nonce, ciphertext], { type: mimeType })
-  }
+
 
   async function uploadFile(file: File) {
     // Determine type
@@ -389,28 +369,18 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     let uploadBlob: Blob
     let uploadType: string
     let thumbnailBlob: Blob | null = null
-    if (isImage || isPdf) {
-      // Encrypt client-side
-      const buffer = await file.arrayBuffer()
-      console.log('ChatInterface: file buffer first 16 bytes before encryption', Array.from(new Uint8Array(buffer).slice(0, 16)))
-      uploadBlob = await encryptFileBuffer(buffer, conversationKey, file.type)
-      uploadType = isImage ? 'image' : 'pdf'
-      // Generate and encrypt thumbnail
-      if (isImage) {
-        const thumb = await generateImageThumbnail(file)
-        const thumbBuffer = await thumb.arrayBuffer()
-        thumbnailBlob = await encryptFileBuffer(thumbBuffer, conversationKey, 'image/jpeg')
-      } else if (isPdf) {
-        const thumb = await generatePdfThumbnail(file)
-        const thumbBuffer = await thumb.arrayBuffer()
-        thumbnailBlob = await encryptFileBuffer(thumbBuffer, conversationKey, 'image/jpeg')
-      }
-    } else if (isVideo) {
-      // Upload unencrypted
-      uploadBlob = file
-      uploadType = 'video'
-    } else {
-      throw new Error('Unsupported file type')
+    
+    // Server handles encryption, just upload the file
+    uploadBlob = file
+    uploadType = isImage ? 'image' : isVideo ? 'video' : 'pdf'
+    
+    // Generate thumbnails for images and PDFs (server will encrypt them)
+    if (isImage) {
+      const thumb = await generateImageThumbnail(file)
+      thumbnailBlob = thumb
+    } else if (isPdf) {
+      const thumb = await generatePdfThumbnail(file)
+      thumbnailBlob = thumb
     }
 
     const formData = new FormData()
@@ -758,7 +728,6 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
                   <ThumbnailViewer
                     thumbnailUrl={message.thumbnailUrl}
                     conversationId={conversationId}
-                    conversationKey={conversationKey}
                     originalFilename={message.originalFilename}
                     onClick={() => {
                       const idx = mediaMessages.findIndex(m => m.mediaUrl === message.mediaUrl)
@@ -838,7 +807,6 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
           mediaList={mediaMessages}
           initialIndex={mediaViewerIndex}
           onClose={() => setMediaViewerOpen(false)}
-          conversationKey={conversationKey}
         />
       )}
     </div>
