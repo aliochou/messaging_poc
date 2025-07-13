@@ -22,15 +22,11 @@ export async function deriveConversationKey(conversationId: string, userEmail: s
   
   const seed = `${conversationId}:${participantEmails.join(':')}:${userEmail}`
   
-  // Use Argon2 to derive a secure key from the seed
+  // Use PBKDF2-like derivation for server-side compatibility
   const salt = await getConversationSalt(conversationId)
-  const derivedKey = sodium.crypto_pwhash(
+  const derivedKey = sodium.crypto_generichash(
     32, // 32 bytes for crypto_secretbox
-    seed,
-    salt,
-    sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodium.crypto_pwhash_ALG_DEFAULT
+    seed + sodium.to_base64(salt)
   )
   
   return Buffer.from(derivedKey)

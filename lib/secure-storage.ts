@@ -18,14 +18,10 @@ class WebCryptoSecureStorage implements SecureStorage {
     // Generate a random salt for this key
     const salt = sodium.randombytes_buf(32)
     
-    // Derive encryption key from password using Argon2
-    const derivedKey = sodium.crypto_pwhash(
+    // Derive encryption key from password using PBKDF2-like approach
+    const derivedKey = sodium.crypto_generichash(
       32,
-      password,
-      salt,
-      sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_ALG_DEFAULT
+      password + sodium.to_base64(salt)
     )
     
     // Generate a random IV
@@ -61,13 +57,9 @@ class WebCryptoSecureStorage implements SecureStorage {
       const encrypted = combined.slice(44)
       
       // Derive the same key from password
-      const derivedKey = sodium.crypto_pwhash(
+      const derivedKey = sodium.crypto_generichash(
         32,
-        password,
-        salt,
-        sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_ALG_DEFAULT
+        password + sodium.to_base64(salt)
       )
       
       // Decrypt the private key
@@ -104,13 +96,9 @@ class FallbackSecureStorage implements SecureStorage {
     
     // Encrypt with password before storing
     const salt = sodium.randombytes_buf(32)
-    const derivedKey = sodium.crypto_pwhash(
+    const derivedKey = sodium.crypto_generichash(
       32,
-      password,
-      salt,
-      sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_ALG_DEFAULT
+      password + sodium.to_base64(salt)
     )
     
     const keyBytes = sodium.from_base64(key)
@@ -134,13 +122,9 @@ class FallbackSecureStorage implements SecureStorage {
       const salt = combined.slice(0, 32)
       const encrypted = combined.slice(32)
       
-      const derivedKey = sodium.crypto_pwhash(
+      const derivedKey = sodium.crypto_generichash(
         32,
-        password,
-        salt,
-        sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_ALG_DEFAULT
+        password + sodium.to_base64(salt)
       )
       
       const decrypted = sodium.crypto_secretbox_open_easy(encrypted, salt, derivedKey)

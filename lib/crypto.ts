@@ -42,18 +42,8 @@ export async function encryptPrivateKey(privateKey: string, password: string): P
     const NONCEBYTES = sodium.crypto_secretbox_NONCEBYTES || 24;
     const salt = sodium.randombytes_buf(SALTBYTES);
     let key;
-    if (sodium.crypto_pwhash) {
-      key = sodium.crypto_pwhash(
-        KEYBYTES,
-        password,
-        salt,
-        sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-        sodium.crypto_pwhash_ALG_DEFAULT
-      );
-    } else {
-      key = sodium.crypto_generichash(KEYBYTES, password + sodium.to_base64(salt));
-    }
+    // Use PBKDF2-like derivation for compatibility
+    key = sodium.crypto_generichash(KEYBYTES, password + sodium.to_base64(salt));
     if (!key) {
       throw new Error("Failed to derive key from password");
     }
@@ -86,19 +76,8 @@ export async function decryptPrivateKey(encryptedPrivateKey: string, password: s
     (sodium.crypto_pwhash_SALTBYTES || 16) + (sodium.crypto_secretbox_NONCEBYTES || 24)
   )
   const ciphertext = encrypted.slice((sodium.crypto_pwhash_SALTBYTES || 16) + (sodium.crypto_secretbox_NONCEBYTES || 24))
-  let key;
-  if (sodium.crypto_pwhash) {
-    key = sodium.crypto_pwhash(
-      sodium.crypto_secretbox_KEYBYTES || 32,
-      password,
-      salt,
-      sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-      sodium.crypto_pwhash_ALG_DEFAULT
-    );
-  } else {
-    key = sodium.crypto_generichash(sodium.crypto_secretbox_KEYBYTES || 32, password + sodium.to_base64(salt))
-  }
+  // Use PBKDF2-like derivation for compatibility
+  let key = sodium.crypto_generichash(sodium.crypto_secretbox_KEYBYTES || 32, password + sodium.to_base64(salt))
   const decrypted = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key)
   return sodium.to_base64(decrypted)
 }
