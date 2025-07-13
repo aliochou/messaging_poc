@@ -93,3 +93,6 @@ jspm_packages/
 # OS
 .DS_Store
 Thumbs.db
+
+# Ignore media uploads
+uploads/
