@@ -1,5 +1,10 @@
 # 🚀 **LIVE DEPLOYMENT GUIDE**
 
+## ⚠️ **SECURITY WARNING**
+**Before proceeding, read the SECURE_DEPLOYMENT_GUIDE.md for critical security information!**
+
+This guide assumes you've followed the security best practices to prevent secret leaks.
+
 ## 📋 **Prerequisites**
 
 Before starting deployment, ensure you have:
@@ -58,32 +63,19 @@ Before starting deployment, ensure you have:
 
 ## 🔧 **Step 3: Environment Configuration**
 
-### **3.1 Create Production Environment File**
+### **3.1 ⚠️ SECURITY WARNING**
+**NEVER create a local .env.production file!** This could accidentally be committed to Git.
+
+### **3.2 Secure Environment Setup**
+All production secrets will be configured in the Vercel dashboard (Step 5.2).
+
+**Generate secure secrets locally (don't save them):**
 ```bash
-cp env.production.example .env.production
-```
+# Generate NEXTAUTH_SECRET (copy to Vercel later)
+openssl rand -base64 32
 
-### **3.2 Fill in Environment Variables**
-Edit `.env.production`:
-```env
-# Database (Supabase PostgreSQL)
-DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT_REF.supabase.co:5432/postgres"
-
-# Supabase Configuration
-SUPABASE_URL="https://YOUR_PROJECT_REF.supabase.co"
-SUPABASE_ANON_KEY="YOUR_ANON_KEY"
-SUPABASE_SERVICE_ROLE_KEY="YOUR_SERVICE_ROLE_KEY"
-
-# NextAuth Configuration
-NEXTAUTH_URL="https://your-domain.vercel.app"
-NEXTAUTH_SECRET="GENERATE_A_SECURE_SECRET"
-
-# Google OAuth (Production)
-GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID"
-GOOGLE_CLIENT_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
-
-# Security
-NODE_ENV="production"
+# Generate additional secrets if needed
+openssl rand -base64 32
 ```
 
 ### **3.3 Generate Secure Secret**
