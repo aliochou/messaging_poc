@@ -52,6 +52,6 @@ export async function GET(request: NextRequest) {
     })
   } catch (e) {
     console.error('Media download error:', e)
-    return NextResponse.json({ error: 'File not found or decryption failed' }, { status: 404 })
+    return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }
 } 

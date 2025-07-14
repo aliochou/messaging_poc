@@ -65,7 +65,7 @@ class WebCryptoSecureStorage implements SecureStorage {
       // Decrypt the private key
       const decrypted = sodium.crypto_secretbox_open_easy(encrypted, iv, derivedKey)
       if (!decrypted) {
-        throw new Error('Decryption failed - wrong password or corrupted data')
+        throw new Error('Decryption failed')
       }
       
       return sodium.to_base64(decrypted)

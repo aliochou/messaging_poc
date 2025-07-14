@@ -75,8 +75,8 @@ async function setupTestUsers() {
         data: {
           email: user.email,
           name: user.name,
-          publicKey: 'test-key', // Simplified for demo
-          encryptedPrivateKey: 'test-encrypted-key'
+          publicKey: 'demo-key-for-testing-only', // Demo only - not for production
+          encryptedPrivateKey: 'demo-encrypted-key-for-testing-only'
         }
       })
     }

@@ -195,7 +195,7 @@ const uploadHandler = withSecurityMiddleware(
   
   if (type === 'video') {
     // For videos: save uploaded file, transcode, then encrypt
-    console.log('API upload: file buffer first 16 bytes before encryption', Array.from(fileBuffer.slice(0, 16)))
+    console.log('API upload: file buffer size', fileBuffer.length)
     // Save uploaded file temporarily
     const tempPath = path.join(UPLOADS_DIR, `${id}-temp${ext}`)
     await fs.writeFile(tempPath, fileBuffer)
