@@ -20,7 +20,7 @@ export async function deriveConversationKey(conversationId: string, userEmail: s
     .map(p => p.user.email)
     .sort() // Ensure deterministic ordering
   
-  const seed = `${conversationId}:${participantEmails.join(':')}:${userEmail}`
+  const seed = `${conversationId}:${participantEmails.join(':')}`
   
   // Use PBKDF2-like derivation for server-side compatibility
   const salt = await getConversationSalt(conversationId)
@@ -49,12 +49,25 @@ async function getConversationSalt(conversationId: string): Promise<Uint8Array> 
   const salt = sodium.randombytes_buf(32)
   
   // Store salt in database
-  await prisma.conversationSalt.create({
-    data: {
-      conversationId,
-      salt: sodium.to_base64(salt)
+  try {
+    await prisma.conversationSalt.create({
+      data: {
+        conversationId,
+        salt: sodium.to_base64(salt)
+      }
+    })
+  } catch (error: any) {
+    // If salt already exists, try to get it again
+    if (error.code === 'P2002') {
+      const existingSalt = await prisma.conversationSalt.findUnique({
+        where: { conversationId }
+      })
+      if (existingSalt) {
+        return sodium.from_base64(existingSalt.salt)
+      }
     }
-  })
+    throw error
+  }
   
   return salt
 }

@@ -164,15 +164,20 @@ const uploadHandler = withSecurityMiddleware(
   }
 
   // Validate user is a participant
+  console.log('🔍 Checking conversation access:', { conversationId, userEmail: session.user.email })
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: { participants: { include: { user: true } } }
   })
   if (!conversation) {
+    console.log('❌ Conversation not found:', conversationId)
     return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
   }
+  console.log('✅ Conversation found:', { name: conversation.name, participants: conversation.participants.map(p => p.user.email) })
   const isParticipant = conversation.participants.some(p => p.user.email === session.user.email)
+  console.log('🔐 Participant check:', { isParticipant, userEmail: session.user.email })
   if (!isParticipant) {
+    console.log('❌ User not a participant:', { userEmail: session.user.email, conversationId })
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

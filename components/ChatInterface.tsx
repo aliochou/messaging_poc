@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { PencilIcon } from '@heroicons/react/24/outline'
 import MediaViewer from './MediaViewer'
 import sodium from 'libsodium-wrappers'
+import { useCSRF } from '@/hooks/useCSRF'
 
 interface Message {
   id: string
@@ -135,6 +136,9 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     'video/mp4', 'video/avi', 'video/quicktime', 'video/mov',
     'application/pdf'
   ]
+
+  // CSRF protection
+  const { csrfToken, createHeaders } = useCSRF()
 
   // Server now handles decryption, no client-side key needed
 
@@ -334,7 +338,7 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
   // Utility: generate PDF thumbnail (first page, 200px wide, JPEG)
   async function generatePdfThumbnail(file: File) {
     try {
-      const pdfjsLib = await import('pdfjs-dist/build/pdf');
+      const pdfjsLib = await import('pdfjs-dist');
       pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -398,6 +402,12 @@ export default function ChatInterface({ conversationId, currentUserEmail, refres
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', '/api/media/upload')
+      
+      // Add CSRF token header
+      if (csrfToken) {
+        xhr.setRequestHeader('x-csrf-token', csrfToken)
+      }
+      
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
           console.log('Upload progress event:', { fileName: file.name, loaded: e.loaded, total: e.total })
